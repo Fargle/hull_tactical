@@ -80,7 +80,7 @@ if __name__ == '__main__':
 
     sequence_length = 365
     adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels, sequence_length)
-    batch_size = 50
+    batch_size = 100
     input_dim = 66
     output_dim = 1
     hidden_dim = 64
