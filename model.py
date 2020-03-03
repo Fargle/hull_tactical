@@ -7,7 +7,7 @@ from torchvision import models, transforms, datasets
 from torch.utils.data import DataLoader
 import os
 import pandas as pd 
-from sklearn import preprocessing
+import csv
 
 class Model(nn.Module):
     def __init__(self, input_dim, out_dim, hidden_dim, n_layers, batch_size, seq_len, batch_first = True):
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     df = pd.read_csv(PATH) #save data into pandas data frame
     df = df[df["R"].notna()] #remove any rows where R does not have a value
     del df["Index"] #delete dates from our data 
-    ##df = df.fillna(0)
+    df = df.dropna()
     x_train, x_valid, train_labels, valid_labels = organize_data(df) #split our data into two sets, train and validate. 
     xnorm_train = normalize_data(x_train) #Normalize train and validation sets. 
     xnorm_valid = normalize_data(x_valid)
@@ -78,12 +78,12 @@ if __name__ == '__main__':
     print("xnorm torch tensor size:", xnorm_train.size(), "trainnorm size:", trainnorm_labels.size())
     #print("length of xnorm train:", len(xnorm_train))
 
-    sequence_length = 365
+    sequence_length = 30
     adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels, sequence_length)
-    batch_size = 100
+    batch_size = 30
     input_dim = 66
     output_dim = 1
-    hidden_dim = 64
+    hidden_dim = 100
     n_layers = 2
 
 
@@ -92,7 +92,7 @@ if __name__ == '__main__':
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    epochs = 150
+    epochs = 10
 
   
     for i in range(epochs):
@@ -110,3 +110,14 @@ if __name__ == '__main__':
         if i%25 == 1:
             print(f'epoch: {i:3} loss: {single_loss.item():10.8f}')
             print(f'epoch: {i:3} loss: {single_loss.item():10.10f}')
+
+    adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
+    for valid, label in adjusted_valid:
+        y_pred = model(valid)
+        single_loss = loss_function(y_pred, label)
+
+        with open("results.csv", "a+") as results:
+            result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
+            result_writer.writerow(["loss", "prediction", "actual"])
+            result_writer.writerow([single_loss.item(), y_pred.item(), label.item()])
+
