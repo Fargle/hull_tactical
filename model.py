@@ -112,12 +112,11 @@ if __name__ == '__main__':
             print(f'epoch: {i:3} loss: {single_loss.item():10.10f}')
 
     adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
-    for valid, label in adjusted_valid:
-        y_pred = model(valid)
-        single_loss = loss_function(y_pred, label)
-
-        with open("results.csv", "a+") as results:
-            result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
-            result_writer.writerow(["loss", "prediction", "actual"])
+    with open("results.csv", "a+") as results:
+        result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
+        result_writer.writerow(["loss", "prediction", "actual"])
+        for valid, label in adjusted_valid:
+            y_pred = model(valid)
+            single_loss = loss_function(y_pred, label)
             result_writer.writerow([single_loss.item(), y_pred.item(), label.item()])
 
