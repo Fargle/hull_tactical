@@ -116,6 +116,7 @@ if __name__ == '__main__':
     with open("results.csv", "a+") as results:
         result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
         result_writer.writerow(["loss", "prediction", "actual"])
+<<<<<<< HEAD:train_model.py
 
         for valid, label in adjusted_valid:
             valid = valid.cuda()
@@ -123,5 +124,10 @@ if __name__ == '__main__':
             label = label.cuda()
             single_loss = loss_function(y_pred, label)
 
+=======
+        for valid, label in adjusted_valid:
+            y_pred = model(valid)
+            single_loss = loss_function(y_pred, label)
+>>>>>>> 3dc5bd1621ece12104e6049b82e87b2001e9f86e:model.py
             result_writer.writerow([single_loss.item(), y_pred.item(), label.item()])
 
