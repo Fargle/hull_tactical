@@ -14,13 +14,13 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.hidden_dim = hidden_dim
         self.LSTM = nn.LSTM(input_dim, hidden_dim)
-        self.linear = nn.Linear(hidden_dim, out_dim) 
-        self.cell_state = (torch.zeros(1,1,self.hidden_dim), 
-                           torch.zeros(1,1,self.hidden_dim))
+        self.linear = nn.Linear(hidden_dim, out_dim)
+        self.cell_state = (torch.zeros(1,1,self.hidden_dim).cuda(), 
+                           torch.zeros(1,1,self.hidden_dim).cuda())
         
     def forward(self, in_seq):
         out, self.cell_state = self.LSTM(in_seq.view(len(in_seq), 1, -1), self.cell_state)
-        predictions = self.linear(out.view(len(in_seq), -1))
+        predictions = self.linear(out.view(len(in_seq), -1)).cuda()
         return predictions[-1]
 
 #Splits our data into two sets. Default is 80%, 20% split. 
@@ -78,31 +78,32 @@ if __name__ == '__main__':
     print("xnorm torch tensor size:", xnorm_train.size(), "trainnorm size:", trainnorm_labels.size())
     #print("length of xnorm train:", len(xnorm_train))
 
-    sequence_length = 30
+    sequence_length = 365
     adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels, sequence_length)
-    batch_size = 30
+    batch_size = 100
     input_dim = 66
     output_dim = 1
     hidden_dim = 100
-    n_layers = 2
+    n_layers = 3
 
 
     #print(adjusted_xnorm_train[:5])
     model = Model(input_dim = input_dim, out_dim=output_dim, hidden_dim=hidden_dim, n_layers=n_layers, batch_size=1, seq_len = sequence_length)
+    model = model.cuda()
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    epochs = 10
+    epochs = 150
 
-  
     for i in range(epochs):
         for seq, label in adjusted_xnorm_train:
             optimizer.zero_grad()
-            model.cell_state = (torch.zeros(1, 1, model.hidden_dim),
-                                torch.zeros(1, 1, model.hidden_dim))
-
+            model.cell_state = (torch.zeros(1, 1, model.hidden_dim).cuda(),
+                                torch.zeros(1, 1, model.hidden_dim).cuda())
+            seq = seq.cuda()
             y_pred = model(seq)
 
+            label = label.cuda()
             single_loss = loss_function(y_pred, label)
             single_loss.backward()
             optimizer.step()
@@ -110,14 +111,17 @@ if __name__ == '__main__':
         if i%25 == 1:
             print(f'epoch: {i:3} loss: {single_loss.item():10.8f}')
             print(f'epoch: {i:3} loss: {single_loss.item():10.10f}')
-
+    torch.save(model.state_dict(), "./model.pkl")
     adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
-    for valid, label in adjusted_valid:
-        y_pred = model(valid)
-        single_loss = loss_function(y_pred, label)
+    with open("results.csv", "a+") as results:
+        result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
+        result_writer.writerow(["loss", "prediction", "actual"])
 
-        with open("results.csv", "a+") as results:
-            result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
-            result_writer.writerow(["loss", "prediction", "actual"])
+        for valid, label in adjusted_valid:
+            valid = valid.cuda()
+            y_pred = model(valid)
+            label = label.cuda()
+            single_loss = loss_function(y_pred, label)
+
             result_writer.writerow([single_loss.item(), y_pred.item(), label.item()])
 
