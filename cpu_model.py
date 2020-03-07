@@ -60,6 +60,11 @@ def create_sequences(data, labels, sequence):
         adjusted_data.append((train_seq, train_label.unsqueeze(0)))
     return adjusted_data
     
+def write_output(prediction):
+    with open("output.txt", "w") as output:
+        output.write(prediction)
+        output.write(0)
+        output.write(0)
 
 if __name__ == "__main__": 
     args = setup()
@@ -89,4 +94,5 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(PATH, map_location=torch.device('cpu')))
         model.eval()
         prediction = validate(model, seq_norm, loss_function)
-        print(prediction)
+        
+        write_output(prediction)
