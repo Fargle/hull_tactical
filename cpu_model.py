@@ -62,9 +62,9 @@ def create_sequences(data, labels, sequence):
     
 def write_output(prediction):
     with open("output.txt", "w") as output:
-        output.write(str(prediction))
-        output.write(str(0))
-        output.write(str(0))
+        output.writelines(str(prediction))
+        output.writelines(str(0))
+        output.writelines(str(0))
 
 if __name__ == "__main__": 
     args = setup()
