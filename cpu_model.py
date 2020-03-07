@@ -42,7 +42,7 @@ def validate(model, validation_data, loss_function):
             single_loss = loss_function(y_pred, label)
 
             result_writer.writerow([single_loss.item(), y_pred.item(), label.item()])
-    return y_pred
+    return y_pred.item()
 
 def normalize_data(data):
     def normalize(x, mean, std):
