@@ -16,7 +16,7 @@ def setup():
     parser.add_argument("--train", help="train lstm model", action="store_true")
     parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))    
     return parser.parse_args()
-    
+
 class Model(nn.Module):
     def __init__(self, input_dim, out_dim, hidden_dim, n_layers, batch_size, seq_len, batch_first = True):
         super(Model, self).__init__()
@@ -42,6 +42,7 @@ def validate(model, validation_data, loss_function):
             single_loss = loss_function(y_pred, label)
 
             result_writer.writerow([single_loss.item(), y_pred.item(), label.item()])
+    return y_pred
 
 def normalize_data(data):
     def normalize(x, mean, std):
@@ -87,4 +88,5 @@ if __name__ == "__main__":
 
         model.load_state_dict(torch.load(PATH))
         model.eval()
-        validate(model, seq_norm, loss_function)
+        prediction = validate(model, seq_norm, loss_function)
+        print(prediction)
