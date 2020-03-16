@@ -15,7 +15,7 @@ def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument("--load", help="load trained model", action="store_true")
     parser.add_argument("--train", help="train lstm model", action="store_true")
-    parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network", default={'key': 'item'})
+    parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network")
     parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))
     parser.add_argument("--disable-cuda", action="store_true", help="disables CUDA")
     return parser.parse_args()
