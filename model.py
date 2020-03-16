@@ -9,38 +9,42 @@ import os
 import pandas as pd 
 import csv
 import argparse
+import json
 
 def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument("--load", help="load trained model", action="store_true")
     parser.add_argument("--train", help="train lstm model", action="store_true")
-    parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))    
+    parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network", default={'key': 'item'})
+    parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))
+    parser.add_argument("--disable-cuda", action="store_true", help="disables CUDA")
     return parser.parse_args()
 
 class Model(nn.Module):
-    def __init__(self, input_dim, out_dim, hidden_dim, n_layers, batch_size, seq_len, batch_first = True):
+    def __init__(self, input_dim, out_dim, hidden_dim, n_layers, batch_size, seq_len, device, batch_first = True):
         super(Model, self).__init__()
         self.hidden_dim = hidden_dim
         self.LSTM = nn.LSTM(input_dim, hidden_dim)
         self.linear = nn.Linear(hidden_dim, out_dim)
-        self.cell_state = (torch.zeros(1,1,self.hidden_dim).cuda(), 
-                           torch.zeros(1,1,self.hidden_dim).cuda())
+        self.device = device
+        self.cell_state = (torch.zeros(1,1,self.hidden_dim, device=device), 
+                           torch.zeros(1,1,self.hidden_dim, device=device))
         
     def forward(self, in_seq):
         out, self.cell_state = self.LSTM(in_seq.view(len(in_seq), 1, -1), self.cell_state)
-        predictions = self.linear(out.view(len(in_seq), -1)).cuda()
+        predictions = self.linear(out.view(len(in_seq), -1)).to(device=self.device)       
         return predictions[-1]
 
-def train(model, epochs, training_data, loss_function, optimizer):
+def train(model, epochs, training_data, loss_function, optimizer, device):
     for i in range(epochs):
         for seq, label in adjusted_xnorm_train:
             optimizer.zero_grad()
-            model.cell_state = (torch.zeros(1, 1, model.hidden_dim).cuda(),
-                                torch.zeros(1, 1, model.hidden_dim).cuda())
-            seq = seq.cuda()
+            model.cell_state = (torch.zeros(1, 1, model.hidden_dim, device=device),
+                                torch.zeros(1, 1, model.hidden_dim, device=device))
+            seq = seq.to(device=device)
             y_pred = model(seq)
 
-            label = label.cuda()
+            label = label.to(device=device)
             single_loss = loss_function(y_pred, label)
             single_loss.backward()
             optimizer.step()
@@ -49,15 +53,15 @@ def train(model, epochs, training_data, loss_function, optimizer):
             print(f'epoch: {i:3} loss: {single_loss.item():10.8f}')
             print(f'epoch: {i:3} loss: {single_loss.item():10.10f}')
 
-def validate(model, validation_data, loss_function):
+def validate(model, validation_data, loss_function, device):
     with open("results.csv", "a+") as results:
         result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
         result_writer.writerow(["loss", "prediction", "actual"])
 
         for valid, label in validation_data:
-            valid = valid.cuda()
+            valid = valid.to(device=device)
             y_pred = model(valid)
-            label = label.cuda()
+            label = label.to(device=device)
             single_loss = loss_function(y_pred, label)
 
             result_writer.writerow([single_loss.item(), y_pred.item(), label.item()])
@@ -82,6 +86,7 @@ def normalize_data(data):
     return normalize(data, mean, std)
 
 def create_sequences(data, labels, sequence):
+    sequence = int(sequence)
     adjusted_data = []
     L = data.size()[0]
     labels = torch.cat((labels, labels[len(labels)-1:]))
@@ -90,7 +95,6 @@ def create_sequences(data, labels, sequence):
         train_label = labels[i+sequence+1]
         adjusted_data.append((train_seq, train_label.unsqueeze(0)))
     return adjusted_data
-    
 
 if __name__ == '__main__':
     args = setup()
@@ -98,18 +102,32 @@ if __name__ == '__main__':
     df = df[df["R"].notna()] #remove any rows where R does not have a value
     del df["Index"] #delete dates from our data 
     df = df.dropna() #need a different way to deal with nan  
-    
+
     PATH = './model.pth'
-    sequence_length = 365
-    batch_size = 365
-    input_dim = 66
-    output_dim = 1
-    hidden_dim = 128
-    n_layers = 3
-    model = Model(input_dim = input_dim, out_dim=output_dim, hidden_dim=hidden_dim, n_layers=n_layers, batch_size=1, seq_len = sequence_length)
-    model = model.cuda()
+
+    args.device = None
+    if not args.disable_cuda and torch.cuda.is_available():
+        args.device = torch.device("cuda")
+    else:
+        args.device = torch.device('cpu')
+
+    parameters = json.load(open(args.parameters))
+    sequence_length =parameters.get("sequence length") if parameters.get("sequence length") is not None else   365
+    batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             365
+    input_dim =      parameters.get("input dimension") if parameters.get("input dimension") is not None else   66
+    out_dim =        parameters.get("output dimension") if parameters.get("output dimension") is not None else 1
+    hidden_dim =     parameters.get("hidden dimension") if parameters.get("hidden dimension") is not None else 64
+    layers =         parameters.get("layers") if parameters.get("layers") is not None else                     2
+    lr =             parameters.get("learning rate") if parameters.get("learning rate") is not None else       0.001
+    epochs =         parameters.get("epochs") if parameters.get("epochs") is not None else                     150
+
+    model = Model(input_dim=input_dim, out_dim=out_dim, 
+                  hidden_dim=int(hidden_dim), n_layers=layers, 
+                  batch_size=batch_size, seq_len=sequence_length, 
+                  device=args.device)
+    model = model.to(device=args.device)
     loss_function = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.00001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     if args.train:
         x_train, x_valid, train_labels, valid_labels = organize_data(df) #split our data into two sets, train and validate. 
@@ -120,22 +138,19 @@ if __name__ == '__main__':
         print("Valid shape:", x_valid.shape, "Valid label:", valid_labels.shape)
         print("Train shape:", x_train.shape, "Train labels:", train_labels.shape)   
 
-    #print("Train:", x_train.iloc[:5], "xnorm_train: ", xnorm_train.iloc[:5])
-    #print("Valid:", x_valid.iloc[:5], "xnorm_valid: ", xnorm_valid.iloc[:5])
         xnorm_train = torch.FloatTensor(xnorm_train.values).view(-1, 66)
         trainnorm_labels = torch.FloatTensor(trainnorm_labels.values)
         xnorm_valid = torch.FloatTensor(xnorm_valid.values).view(-1, 66)
         validnorm_labels = torch.FloatTensor(validnorm_labels.values)
 
         print("xnorm torch tensor size:", xnorm_train.size(), "trainnorm size:", trainnorm_labels.size())
-        adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels, sequence_length)
+        adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels,  sequence_length)
 
-        epochs = 150
-        train(model, epochs, adjusted_xnorm_train, loss_function, optimizer)
+        train(model, epochs, adjusted_xnorm_train, loss_function, optimizer, device=args.device)
         torch.save(model.state_dict(), PATH)
      
         adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
-        validate(model, adjusted_valid, loss_function)
+        validate(model, adjusted_valid, loss_function, device=args.device)
     
     if args.load:
         data_norm = normalize_data(df)
@@ -147,6 +162,6 @@ if __name__ == '__main__':
 
         model.load_state_dict(torch.load(PATH))
         model.eval()
-        validate(model, seq_norm, loss_function)
+        validate(model, seq_norm, loss_function, device=args.device)
         
 
