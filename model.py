@@ -15,7 +15,7 @@ def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument("--load", help="load trained model", action="store_true")
     parser.add_argument("--train", help="train lstm model", action="store_true")
-    parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network")
+    parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network", default={})
     parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))
     parser.add_argument("--disable-cuda", action="store_true", help="disables CUDA")
     return parser.parse_args()
@@ -111,7 +111,10 @@ if __name__ == '__main__':
     else:
         args.device = torch.device('cpu')
 
-    parameters = json.load(open(args.parameters))
+    try:
+        parameters = json.load(open(args.parameters))
+    except:
+        parameters = args.parameters
     sequence_length =parameters.get("sequence length") if parameters.get("sequence length") is not None else   365
     batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             365
     input_dim =      parameters.get("input dimension") if parameters.get("input dimension") is not None else   66
@@ -122,7 +125,7 @@ if __name__ == '__main__':
     epochs =         parameters.get("epochs") if parameters.get("epochs") is not None else                     150
 
     model = Model(input_dim=input_dim, out_dim=out_dim, 
-                  hidden_dim=int(hidden_dim), n_layers=layers, 
+                  hidden_dim=hidden_dim, n_layers=layers, 
                   batch_size=batch_size, seq_len=sequence_length, 
                   device=args.device)
     model = model.to(device=args.device)
@@ -145,7 +148,7 @@ if __name__ == '__main__':
 
         print("xnorm torch tensor size:", xnorm_train.size(), "trainnorm size:", trainnorm_labels.size())
         adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels,  sequence_length)
-
+        
         train(model, epochs, adjusted_xnorm_train, loss_function, optimizer, device=args.device)
         torch.save(model.state_dict(), PATH)
      
