@@ -15,7 +15,7 @@ def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument("--load", help="load trained model", action="store_true")
     parser.add_argument("--train", help="train lstm model", action="store_true")
-    parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network")
+    parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network", default={})
     parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))
     parser.add_argument("--disable-cuda", action="store_true", help="disables CUDA")
     return parser.parse_args()
@@ -111,18 +111,21 @@ if __name__ == '__main__':
     else:
         args.device = torch.device('cpu')
 
-    parameters = json.load(open(args.parameters))
-    sequence_length =parameters.get("sequence length") if parameters.get("sequence length") is not None else   365
-    batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             365
+    try:
+        parameters = json.load(open(args.parameters))
+    except:
+        parameters = args.parameters
+    sequence_length =parameters.get("sequence length") if parameters.get("sequence length") is not None else   60
+    batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             500
     input_dim =      parameters.get("input dimension") if parameters.get("input dimension") is not None else   66
     out_dim =        parameters.get("output dimension") if parameters.get("output dimension") is not None else 1
     hidden_dim =     parameters.get("hidden dimension") if parameters.get("hidden dimension") is not None else 64
     layers =         parameters.get("layers") if parameters.get("layers") is not None else                     2
-    lr =             parameters.get("learning rate") if parameters.get("learning rate") is not None else       0.001
-    epochs =         parameters.get("epochs") if parameters.get("epochs") is not None else                     150
+    lr =             parameters.get("learning rate") if parameters.get("learning rate") is not None else       0.000001
+    epochs =         parameters.get("epochs") if parameters.get("epochs") is not None else                     200
 
     model = Model(input_dim=input_dim, out_dim=out_dim, 
-                  hidden_dim=int(hidden_dim), n_layers=layers, 
+                  hidden_dim=hidden_dim, n_layers=layers, 
                   batch_size=batch_size, seq_len=sequence_length, 
                   device=args.device)
     model = model.to(device=args.device)
@@ -145,7 +148,7 @@ if __name__ == '__main__':
 
         print("xnorm torch tensor size:", xnorm_train.size(), "trainnorm size:", trainnorm_labels.size())
         adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels,  sequence_length)
-
+        
         train(model, epochs, adjusted_xnorm_train, loss_function, optimizer, device=args.device)
         torch.save(model.state_dict(), PATH)
      
@@ -154,7 +157,7 @@ if __name__ == '__main__':
     
     if args.load:
         data_norm = normalize_data(df)
-        labels = df["R"]
+        labels = data_norm["R"]
         del data_norm["R"]
         data_norm = torch.FloatTensor(data_norm.values).view(-1, 66)
         labels = torch.FloatTensor(labels.values)
