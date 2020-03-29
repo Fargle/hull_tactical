@@ -115,14 +115,14 @@ if __name__ == '__main__':
         parameters = json.load(open(args.parameters))
     except:
         parameters = args.parameters
-    sequence_length =parameters.get("sequence length") if parameters.get("sequence length") is not None else   365
-    batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             365
+    sequence_length =parameters.get("sequence length") if parameters.get("sequence length") is not None else   60
+    batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             500
     input_dim =      parameters.get("input dimension") if parameters.get("input dimension") is not None else   66
     out_dim =        parameters.get("output dimension") if parameters.get("output dimension") is not None else 1
     hidden_dim =     parameters.get("hidden dimension") if parameters.get("hidden dimension") is not None else 64
     layers =         parameters.get("layers") if parameters.get("layers") is not None else                     2
-    lr =             parameters.get("learning rate") if parameters.get("learning rate") is not None else       0.001
-    epochs =         parameters.get("epochs") if parameters.get("epochs") is not None else                     150
+    lr =             parameters.get("learning rate") if parameters.get("learning rate") is not None else       0.000001
+    epochs =         parameters.get("epochs") if parameters.get("epochs") is not None else                     200
 
     model = Model(input_dim=input_dim, out_dim=out_dim, 
                   hidden_dim=hidden_dim, n_layers=layers, 
@@ -157,7 +157,7 @@ if __name__ == '__main__':
     
     if args.load:
         data_norm = normalize_data(df)
-        labels = df["R"]
+        labels = data_norm["R"]
         del data_norm["R"]
         data_norm = torch.FloatTensor(data_norm.values).view(-1, 66)
         labels = torch.FloatTensor(labels.values)
