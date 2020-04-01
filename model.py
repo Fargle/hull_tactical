@@ -164,7 +164,7 @@ if __name__ == '__main__':
         labels = torch.FloatTensor(labels.values)
         seq_norm = create_sequences(data_norm, labels, sequence_length)
 
-        model.load_state_dict(torch.load(PATH))
+        model.load_state_dict(torch.load(PATH, map_location=args.device))
         model.eval()
         validate(model, seq_norm, loss_function, device=args.device)
         
