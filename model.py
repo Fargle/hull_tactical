@@ -114,6 +114,7 @@ if __name__ == '__main__':
     try:
         parameters = json.load(open(args.parameters))
     except:
+        print("unable to load params.json")
         parameters = args.parameters
     sequence_length =parameters.get("sequence length") if parameters.get("sequence length") is not None else   60
     batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             500
