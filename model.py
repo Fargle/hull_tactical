@@ -18,6 +18,7 @@ def setup():
     parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network", default={})
     parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))
     parser.add_argument("--disable-cuda", action="store_true", help="disables CUDA")
+    parser.add_argument("--name", help="name the model.pth file", default='model')
     return parser.parse_args()
 
 class Model(nn.Module):
@@ -53,8 +54,8 @@ def train(model, epochs, training_data, loss_function, optimizer, device):
             print(f'epoch: {i:3} loss: {single_loss.item():10.8f}')
             print(f'epoch: {i:3} loss: {single_loss.item():10.10f}')
 
-def validate(model, validation_data, loss_function, device):
-    with open("results.csv", "a+") as results:
+def validate(model, validation_data, loss_function, device, filename):
+    with open(filename, "a+") as results:
         result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
         result_writer.writerow(["loss", "prediction", "actual"])
 
@@ -103,7 +104,7 @@ if __name__ == '__main__':
     del df["Index"] #delete dates from our data 
     df = df.dropna() #need a different way to deal with nan  
 
-    PATH = './model.pth'
+    PATH = args.name + '.pth'
 
     args.device = None
     if not args.disable_cuda and torch.cuda.is_available():
@@ -111,10 +112,11 @@ if __name__ == '__main__':
     else:
         args.device = torch.device('cpu')
 
+        
     try:
         parameters = json.load(open(args.parameters))
     except:
-        print("unable to load params.json")
+        print("unable to load params.json, using default")
         parameters = args.parameters
     sequence_length =parameters.get("sequence length") if parameters.get("sequence length") is not None else   60
     batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             500
@@ -133,6 +135,8 @@ if __name__ == '__main__':
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
+
+    outfile = args.name + "-results.csv"
     if args.train:
         x_train, x_valid, train_labels, valid_labels = organize_data(df) #split our data into two sets, train and validate. 
         xnorm_train = normalize_data(x_train) #Normalize train and validation sets. 
@@ -154,7 +158,7 @@ if __name__ == '__main__':
         torch.save(model.state_dict(), PATH)
      
         adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
-        validate(model, adjusted_valid, loss_function, device=args.device)
+        validate(model, adjusted_valid, loss_function, device=args.device, filename=outfile)
     
     if args.load:
         data_norm = normalize_data(df)
@@ -166,6 +170,5 @@ if __name__ == '__main__':
 
         model.load_state_dict(torch.load(PATH, map_location=args.device))
         model.eval()
-        validate(model, seq_norm, loss_function, device=args.device)
+        validate(model, seq_norm, loss_function, device=args.device, filename=outfile)
         
-
