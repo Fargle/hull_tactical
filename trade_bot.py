@@ -4,12 +4,13 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 
-buys = {'max': 100, 'med': 50, 'min': 25}
+buys = {'max': 2500, 'med': 1000, 'min': 500}
 
 def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument("--show", help="show the trading and selling through all data", action="store_true")
     parser.add_argument("--new", help="make a new account", action="store_true")
+    parser.add_argument("--testing", help ="test bot on results.csv", action="store_true")
     parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))
     return parser.parse_args()
 
@@ -70,17 +71,20 @@ def calculate_earnings(r, invested):
     invested = invested * (1 + r)
     return invested
 
+
 def write_out(file, prediction, buy, sell):
     with open(file, mode='w') as output:
         output.write(str(prediction) + "\n")
         output.write(str(buy) + "\n")
         output.write(str(sell) + "\n")
 
+
 def write_csv(file, available, invested, total):
     with open(file, mode="w", newline='', encoding='utf-8') as account:
         account_writer = csv.writer(account, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
         account_writer.writerow(['available', 'invested', 'total'])
         account_writer.writerow([available, invested, total])
+
 
 def read_csv(file):
     with open(file, 'r', encoding='utf-8') as f:
@@ -89,21 +93,29 @@ def read_csv(file):
             pass
     return row
 
+available = 10000
+invested = 10000
+total = 0
+
 if __name__ == '__main__':
     args = setup()
     results = pd.read_csv("results.csv")
-    if args.new:
-        write_csv(file='account.csv', available=10000, invested=0, total=10000)
-    account = read_csv("account.csv")
 
-    delta = results["prediction"].std()
-    available = float(account['available'])
-    invested = float(account['invested'])
-    total = float(account['total'])
+    if args.testing:
+        testing = args.testing
 
+        if args.new:
+            write_csv(file='account.csv', available=10000, invested=0, total=10000)
+
+        account = read_csv("account.csv")
+        available = float(account['available'])
+        invested = float(account['invested'])
+        total = float(account['total'])
+        r = results.iloc[len(results)-1]["actual"]
+        invested = calculate_earnings(r, invested)
+
+    delta = results["actual"].std()
     prediction = results.iloc[len(results)-1]["prediction"].astype(float)
-    r = results.iloc[len(results)-1]["actual"]
-    invested = calculate_earnings(r, invested)
     buy, sell = buy_or_sell(available, invested, prediction, delta)
     write_out("output.txt", prediction, buy, sell)
 
@@ -135,5 +147,4 @@ if __name__ == '__main__':
                 available, invested = sell_stock(sell, available, invested)
 
         total = invested + available
-        print('total', total)
 
