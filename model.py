@@ -10,8 +10,10 @@ import pandas as pd
 import csv
 import argparse
 import json
+import wandb
 
 def setup():
+    wandb.init(project='hull-tactical')
     parser = argparse.ArgumentParser()
     parser.add_argument("--load", help="load trained model", action="store_true")
     parser.add_argument("--train", help="train lstm model", action="store_true")
@@ -104,7 +106,7 @@ if __name__ == '__main__':
     del df["Index"] #delete dates from our data 
     df = df.dropna() #need a different way to deal with nan  
 
-    PATH = args.name + '.pth'
+    model_name = args.name + '.pth'
 
     args.device = None
     if not args.disable_cuda and torch.cuda.is_available():
@@ -132,6 +134,7 @@ if __name__ == '__main__':
                   batch_size=batch_size, seq_len=sequence_length, 
                   device=args.device)
     model = model.to(device=args.device)
+    wandb.watch(model)
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -155,7 +158,7 @@ if __name__ == '__main__':
         adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels,  sequence_length)
         
         train(model, epochs, adjusted_xnorm_train, loss_function, optimizer, device=args.device)
-        torch.save(model.state_dict(), PATH)
+        torch.save(model.state_dict(), os.path.join(wandb.run.dir, model_name))
      
         adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
         validate(model, adjusted_valid, loss_function, device=args.device, filename=outfile)
