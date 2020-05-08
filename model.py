@@ -27,11 +27,14 @@ class Model(nn.Module):
     def __init__(self, input_dim, out_dim, hidden_dim, n_layers, batch_size, seq_len, device, batch_first = True):
         super(Model, self).__init__()
         self.hidden_dim = hidden_dim
-        self.LSTM = nn.LSTM(input_dim, hidden_dim)
+        self.layers = n_layers
+        self.LSTM = nn.LSTM(input_dim, hidden_dim, n_layers, dropout=0.2)
+        self.deep = nn.Linear(hidden_dim, hidden_dim)
+        self.dropout = torch.dropout(0.2)
         self.linear = nn.Linear(hidden_dim, out_dim)
         self.device = device
-        self.cell_state = (torch.zeros(1,1,self.hidden_dim, device=device), 
-                           torch.zeros(1,1,self.hidden_dim, device=device))
+        self.cell_state = (torch.zeros(self.layers,1,self.hidden_dim, device=device), 
+                           torch.zeros(self.layers,1,self.hidden_dim, device=device))
         
     def forward(self, in_seq):
         out, self.cell_state = self.LSTM(in_seq.view(len(in_seq), 1, -1), self.cell_state)
@@ -42,8 +45,8 @@ def train(model, epochs, training_data, loss_function, optimizer, device):
     for i in range(epochs):
         for seq, label in adjusted_xnorm_train:
             optimizer.zero_grad()
-            model.cell_state = (torch.zeros(1, 1, model.hidden_dim, device=device),
-                                torch.zeros(1, 1, model.hidden_dim, device=device))
+            model.cell_state = (torch.zeros(2, 1, model.hidden_dim, device=device),
+                                torch.zeros(2, 1, model.hidden_dim, device=device))
             seq = seq.to(device=device)
             y_pred = model(seq)
 
@@ -53,6 +56,7 @@ def train(model, epochs, training_data, loss_function, optimizer, device):
             optimizer.step()
 
         if i%25 == 1:
+            wandb.log({"Test Accuracy": label.item() / y_pred.item(), "Test Loss": single_loss.item()})
             print(f'epoch: {i:3} loss: {single_loss.item():10.8f}')
             print(f'epoch: {i:3} loss: {single_loss.item():10.10f}')
 
@@ -66,7 +70,8 @@ def validate(model, validation_data, loss_function, device, filename):
             y_pred = model(valid)
             label = label.to(device=device)
             single_loss = loss_function(y_pred, label)
-
+            
+            wandb.log({"Test Accuracy": label.item() / y_pred.item(), "Test Loss": single_loss.item()})
             result_writer.writerow([single_loss.item(), y_pred.item(), label.item()])
 
 #Splits our data into two sets. Default is 80%, 20% split. 
