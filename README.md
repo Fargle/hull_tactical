@@ -13,7 +13,7 @@ Everything you'll need to run this is contained in the requirements.txt file.
 python3 model.py --train --parameters params.json
 * you can mess with the params.json file and see if anything better works for you. 
 * If you want to use different data you can specify with the --data <file path> command. 
-python3 model.py --train --data <path to data> 
-* After training, the model is written to a file model.pth. 
+python3 model.py --train --data "path to data"
+* After training, the model is written to a file "model name".pth where "model name" can be given by the --name argument. 
 * To load a pretrained model
 python3 model.py --load
