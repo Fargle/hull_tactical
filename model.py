@@ -13,8 +13,8 @@ import json
 import wandb
 
 def setup():
-    wandb.init(project='hull-tactical')
     parser = argparse.ArgumentParser()
+    parser.add_argument("--sync", help="syncs data with weights and biases remote", action="store_true")
     parser.add_argument("--load", help="load trained model", action="store_true")
     parser.add_argument("--train", help="train lstm model", action="store_true")
     parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network", default={})
@@ -23,46 +23,55 @@ def setup():
     parser.add_argument("--name", help="name the model.pth file", default='model')
     return parser.parse_args()
 
+
 class Model(nn.Module):
-    def __init__(self, input_dim, out_dim, hidden_dim, n_layers, batch_size, seq_len, device, batch_first = True):
+    def __init__(self, input_dim, out_dim, hidden_dim, n_layers, batch_size, seq_len, dropout, device):
         super(Model, self).__init__()
         self.hidden_dim = hidden_dim
+        self.input_dim = input_dim
         self.layers = n_layers
-        self.LSTM = nn.LSTM(input_dim, hidden_dim, n_layers, dropout=0.2)
+        self.batch_size = batch_size
+        self.LSTM = nn.LSTM(input_dim, hidden_dim, n_layers, dropout=dropout)
         self.deep = nn.Linear(hidden_dim, hidden_dim)
-        self.dropout = torch.dropout(0.2)
+        self.dropout = nn.Dropout(p=dropout)
         self.linear = nn.Linear(hidden_dim, out_dim)
         self.device = device
-        self.cell_state = (torch.zeros(self.layers,1,self.hidden_dim, device=device), 
-                           torch.zeros(self.layers,1,self.hidden_dim, device=device))
+        self.cell_state = (torch.zeros(self.layers, self.batch_size ,self.hidden_dim, device=device), 
+                           torch.zeros(self.layers, self.batch_size ,self.hidden_dim, device=device))
         
     def forward(self, in_seq):
-        out, self.cell_state = self.LSTM(in_seq.view(len(in_seq), 1, -1), self.cell_state)
-        predictions = self.linear(out.view(len(in_seq), -1)).to(device=self.device)       
+        out, self.cell_state = self.LSTM(in_seq.view(len(in_seq[0]), self.batch_size, -1), self.cell_state)
+        #deep = self.deep(out.view(len(in_seq[0])))
+        predictions = self.linear(out.view(len(in_seq[0]), self.batch_size, -1)).to(device=self.device)       
         return predictions[-1]
 
-def train(model, epochs, training_data, loss_function, optimizer, device):
-    for i in range(epochs):
-        for seq, label in adjusted_xnorm_train:
-            optimizer.zero_grad()
-            model.cell_state = (torch.zeros(2, 1, model.hidden_dim, device=device),
-                                torch.zeros(2, 1, model.hidden_dim, device=device))
-            seq = seq.to(device=device)
-            y_pred = model(seq)
 
-            label = label.to(device=device)
-            single_loss = loss_function(y_pred, label)
+def train(model, epochs, training_data, loss_function, optimizer, device, sync = False):
+    for i in range(epochs):
+        for batch, labels in training_data:
+            optimizer.zero_grad()
+            model.cell_state = (torch.zeros(model.layers, model.batch_size, model.hidden_dim, device=device),
+                                torch.zeros(model.layers, model.batch_size, model.hidden_dim, device=device))
+            batch = batch.to(device=device)
+            y_pred = model(batch)
+
+            labels = labels.to(device=device)
+            single_loss = loss_function(y_pred, labels)
             single_loss.backward()
             optimizer.step()
 
         if i%25 == 1:
-            wandb.log({"Test Accuracy": label.item() / y_pred.item(), "Test Loss": single_loss.item()})
+            loss = single_loss.sum()
+            ave_loss = single_loss.sum()/batch_size
+            if sync:
+                wandb.log({"Test Accuracy": ave_loss, "Test Loss": loss})
             print(f'epoch: {i:3} loss: {single_loss.item():10.8f}')
             print(f'epoch: {i:3} loss: {single_loss.item():10.10f}')
 
-def validate(model, validation_data, loss_function, device, filename):
+
+def validate(model, validation_data, loss_function, device, filename, sync):
     with open(filename, "a+") as results:
-        result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
+        result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE, escapechar='\\')
         result_writer.writerow(["loss", "prediction", "actual"])
 
         for valid, label in validation_data:
@@ -71,8 +80,12 @@ def validate(model, validation_data, loss_function, device, filename):
             label = label.to(device=device)
             single_loss = loss_function(y_pred, label)
             
-            wandb.log({"Test Accuracy": label.item() / y_pred.item(), "Test Loss": single_loss.item()})
-            result_writer.writerow([single_loss.item(), y_pred.item(), label.item()])
+            if sync:
+                wandb.log({"Test Loss": single_loss.item()})
+
+            for i in range(len(label)-1):
+                result_writer.writerow([single_loss.item(), y_pred.data[i][0].tolist(), label.data[i][0].tolist()])
+
 
 #Splits our data into two sets. Default is 80%, 20% split. 
 def organize_data(df, train = .8):
@@ -86,12 +99,14 @@ def organize_data(df, train = .8):
     x_valid = x_valid.drop("R", axis=1)
     return x_train, x_valid, train_labels, valid_labels
 
+
 #Normalize by taking the mean and standard deviation of our dataset. 
 def normalize_data(data):
     def normalize(x, mean, std):
         return (x - mean)/std
     mean, std = data.mean(), data.std()
     return normalize(data, mean, std)
+
 
 def create_sequences(data, labels, sequence):
     sequence = int(sequence)
@@ -103,6 +118,18 @@ def create_sequences(data, labels, sequence):
         train_label = labels[i+sequence+1]
         adjusted_data.append((train_seq, train_label.unsqueeze(0)))
     return adjusted_data
+
+
+def create_batches(sequences, batch_size):
+    assert(batch_size <= len(sequences))
+    batched_data = []
+    for x in range(len(sequences)-batch_size):
+        if  x%batch_size == 0:
+            batch = [[ i for i, j in sequences[x:x+batch_size]],
+                     [j for i, j in sequences[x:x+batch_size]]]
+            batched_data.append((torch.stack(batch[0]), torch.stack(batch[1])))
+    return batched_data
+
 
 if __name__ == '__main__':
     args = setup()
@@ -126,23 +153,26 @@ if __name__ == '__main__':
         print("unable to load params.json, using default")
         parameters = args.parameters
     sequence_length =parameters.get("sequence length") if parameters.get("sequence length") is not None else   60
-    batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             500
+    batch_size =     parameters.get("batch size") if parameters.get("batch size") is not None else             1
     input_dim =      parameters.get("input dimension") if parameters.get("input dimension") is not None else   66
     out_dim =        parameters.get("output dimension") if parameters.get("output dimension") is not None else 1
     hidden_dim =     parameters.get("hidden dimension") if parameters.get("hidden dimension") is not None else 64
     layers =         parameters.get("layers") if parameters.get("layers") is not None else                     2
-    lr =             parameters.get("learning rate") if parameters.get("learning rate") is not None else       0.000001
+    lr =             parameters.get("learning rate") if parameters.get("learning rate") is not None else       0.001
     epochs =         parameters.get("epochs") if parameters.get("epochs") is not None else                     200
+    dropout =        parameters.get("dropout") if parameters.get("dropout") is not None else                   0.2
 
     model = Model(input_dim=input_dim, out_dim=out_dim, 
                   hidden_dim=hidden_dim, n_layers=layers, 
                   batch_size=batch_size, seq_len=sequence_length, 
-                  device=args.device)
+                  dropout = dropout, device=args.device)
     model = model.to(device=args.device)
-    wandb.watch(model)
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
+    if args.sync:
+        wandb.init(project='hull-tactical')
+        wandb.watch(model)
 
     outfile = args.name + "-results.csv"
     if args.train:
@@ -161,12 +191,16 @@ if __name__ == '__main__':
 
         print("xnorm torch tensor size:", xnorm_train.size(), "trainnorm size:", trainnorm_labels.size())
         adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels,  sequence_length)
+        batched_xnorm_train = create_batches(adjusted_xnorm_train, batch_size)
         
-        train(model, epochs, adjusted_xnorm_train, loss_function, optimizer, device=args.device)
-        torch.save(model.state_dict(), os.path.join(wandb.run.dir, model_name))
+        train(model, epochs, batched_xnorm_train, loss_function, optimizer, device=args.device, sync=args.sync)
+        if args.sync:
+            torch.save(model.state_dict(), os.path.join(wandb.run.dir, model_name)) 
+        torch.save(model.state_dict(), model_name)
      
         adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
-        validate(model, adjusted_valid, loss_function, device=args.device, filename=outfile)
+        batched_valid = create_batches(adjusted_valid, batch_size)
+        validate(model, batched_valid, loss_function, device=args.device, filename=outfile, sync=args.sync)
     
     if args.load:
         data_norm = normalize_data(df)
@@ -175,8 +209,9 @@ if __name__ == '__main__':
         data_norm = torch.FloatTensor(data_norm.values).view(-1, 66)
         labels = torch.FloatTensor(labels.values)
         seq_norm = create_sequences(data_norm, labels, sequence_length)
+        batches = create_batches(seq_norm, batch_size)
 
-        model.load_state_dict(torch.load(PATH, map_location=args.device))
+        model.load_state_dict(torch.load(model_name, map_location=args.device))
         model.eval()
-        validate(model, seq_norm, loss_function, device=args.device, filename=outfile)
+        validate(model, batches, loss_function, device=args.device, filename=outfile, sync=args.sync)
         
