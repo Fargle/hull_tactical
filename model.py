@@ -12,6 +12,7 @@ import argparse
 import json
 import wandb
 
+
 def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument("--sync", help="syncs data with weights and biases remote", action="store_true")
@@ -28,32 +29,37 @@ class Model(nn.Module):
     def __init__(self, input_dim, out_dim, hidden_dim, n_layers, batch_size, seq_len, dropout, device):
         super(Model, self).__init__()
         self.hidden_dim = hidden_dim
+        self.indicator_dim = 8
         self.input_dim = input_dim
         self.layers = n_layers
         self.batch_size = batch_size
-        self.LSTM = nn.LSTM(input_dim, hidden_dim, n_layers, dropout=dropout)
-        self.deep = nn.Linear(hidden_dim, hidden_dim)
+        self.LSTM = nn.LSTM(input_dim, hidden_dim, n_layers, dropout=dropout, batch_first=True)
+        self.deep = nn.Linear(hidden_dim + self.indicator_dim, hidden_dim)
         self.dropout = nn.Dropout(p=dropout)
         self.linear = nn.Linear(hidden_dim, out_dim)
         self.device = device
         self.cell_state = (torch.zeros(self.layers, self.batch_size ,self.hidden_dim, device=device), 
                            torch.zeros(self.layers, self.batch_size ,self.hidden_dim, device=device))
         
-    def forward(self, in_seq):
-        out, self.cell_state = self.LSTM(in_seq.view(len(in_seq[0]), self.batch_size, -1), self.cell_state)
-        #deep = self.deep(out.view(len(in_seq[0])))
-        predictions = self.linear(out.view(len(in_seq[0]), self.batch_size, -1)).to(device=self.device)       
+    def forward(self, in_seq, indicators):
+        out, self.cell_state = self.LSTM(in_seq.view(self.batch_size, len(in_seq[0]), -1), self.cell_state)
+        indicators = indicators.expand(self.batch_size, len(out[0]), self.indicator_dim)
+        out = torch.cat((out, indicators), dim=2).to(device=self.device)
+        deep = self.deep(out.view(self.batch_size*len(in_seq[0]), -1)).to(device=self.device)
+        predictions = self.linear(deep.view(len(deep), -1)).to(device=self.device)
         return predictions[-1]
 
 
 def train(model, epochs, training_data, loss_function, optimizer, device, sync = False):
     for i in range(epochs):
-        for batch, labels in training_data:
+        for batch, labels, indicators in training_data:
+            #model.zero_grad()
             optimizer.zero_grad()
             model.cell_state = (torch.zeros(model.layers, model.batch_size, model.hidden_dim, device=device),
                                 torch.zeros(model.layers, model.batch_size, model.hidden_dim, device=device))
             batch = batch.to(device=device)
-            y_pred = model(batch)
+            indicators  = indicators.to(device=device)
+            y_pred = model(batch, indicators)
 
             labels = labels.to(device=device)
             single_loss = loss_function(y_pred, labels)
@@ -120,14 +126,49 @@ def create_sequences(data, labels, sequence):
     return adjusted_data
 
 
+#Calculates the simple moving average given a time period and list of sequences.
+def moving_ave(sequence, time_period):
+    #sequences in a list of tuples containing the time window and the corresponding label.
+    moving_ave = torch.sum(sequence, axis=0)/time_period
+    return moving_ave
+    
+    
+#this function takes the list of simple moving averages and returns the exponential moving average
+#s is the smoothing. 
+#sequences is the list of tuples containing the time window and the corresponding label.
+#value_t is todays stock value.
+def exp_moving_ave(sequence, time_period, prev_ema = None, s = 2):
+    price_today = sequence[len(sequence)-1][4:8]
+    #print('len sequence', len(sequence))
+    #print('price today', price_today)
+    if prev_ema is None:
+        prev_ema = moving_ave(sequence[0:time_period, 3:7], time_period=len(sequence))
+        #print('prev ema', prev_ema)
+    weight_multiplier = s/float(1+time_period)
+    ema = ((price_today - prev_ema) * weight_multiplier) + prev_ema
+    return ema
+
+
+def append_indicators(sequences, time_period):
+    appended = []
+    ema = exp_moving_ave(sequences[0][0], time_period=time_period)
+    for seq, label in sequences:
+        indicators = moving_ave(seq[:, 3:7], len(seq))
+        ema = exp_moving_ave(seq, time_period=time_period)
+        indicators = torch.cat((indicators, ema), dim=-1)
+        appended.append((seq, label, indicators))
+    return appended
+
+
 def create_batches(sequences, batch_size):
     assert(batch_size <= len(sequences))
     batched_data = []
     for x in range(len(sequences)-batch_size):
         if  x%batch_size == 0:
-            batch = [[ i for i, j in sequences[x:x+batch_size]],
-                     [j for i, j in sequences[x:x+batch_size]]]
-            batched_data.append((torch.stack(batch[0]), torch.stack(batch[1])))
+            batch = [[i for i, j, k in sequences[x:x+batch_size]],
+                     [j for i, j, k in sequences[x:x+batch_size]],
+                     [k for i, j, k in sequences[x:x+batch_size]]]
+            batched_data.append((torch.stack(batch[0]), torch.stack(batch[1]), torch.stack(batch[2])))
     return batched_data
 
 
@@ -161,6 +202,7 @@ if __name__ == '__main__':
     lr =             parameters.get("learning rate") if parameters.get("learning rate") is not None else       0.001
     epochs =         parameters.get("epochs") if parameters.get("epochs") is not None else                     200
     dropout =        parameters.get("dropout") if parameters.get("dropout") is not None else                   0.2
+    time_period =    parameters.get("time period") if parameters.get("time period") is not None else           20
 
     model = Model(input_dim=input_dim, out_dim=out_dim, 
                   hidden_dim=hidden_dim, n_layers=layers, 
@@ -191,7 +233,8 @@ if __name__ == '__main__':
 
         print("xnorm torch tensor size:", xnorm_train.size(), "trainnorm size:", trainnorm_labels.size())
         adjusted_xnorm_train = create_sequences(xnorm_train, trainnorm_labels,  sequence_length)
-        batched_xnorm_train = create_batches(adjusted_xnorm_train, batch_size)
+        appended_xnorm_train = append_indicators(adjusted_xnorm_train, time_period=time_period)
+        batched_xnorm_train = create_batches(appended_xnorm_train, batch_size)
         
         train(model, epochs, batched_xnorm_train, loss_function, optimizer, device=args.device, sync=args.sync)
         if args.sync:
