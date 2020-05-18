@@ -43,6 +43,7 @@ class Model(nn.Module):
         
     def forward(self, in_seq, indicators):
         out, self.cell_state = self.LSTM(in_seq.view(self.batch_size, len(in_seq[0]), -1), self.cell_state)
+        indicators = indicators.view(self.batch_size, 1, -1)
         indicators = indicators.expand(self.batch_size, len(out[0]), self.indicator_dim)
         out = torch.cat((out, indicators), dim=2).to(device=self.device)
         deep = self.deep(out.view(self.batch_size*len(in_seq[0]), -1)).to(device=self.device)
@@ -242,6 +243,7 @@ if __name__ == '__main__':
         torch.save(model.state_dict(), model_name)
      
         adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
+        appended_valid = append_indicators(adjusted_valid, time_period=time_period)
         batched_valid = create_batches(adjusted_valid, batch_size)
         validate(model, batched_valid, loss_function, device=args.device, filename=outfile, sync=args.sync)
     
