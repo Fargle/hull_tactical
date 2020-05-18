@@ -34,7 +34,7 @@ class Model(nn.Module):
         self.layers = n_layers
         self.batch_size = batch_size
         self.LSTM = nn.LSTM(input_dim, hidden_dim, n_layers, dropout=dropout, batch_first=True)
-        self.deep = nn.Linear(hidden_dim + self.indicator_dim, hidden_dim)
+        self.deep = nn.Linear((hidden_dim + self.indicator_dim)*seq_len, hidden_dim)
         self.dropout = nn.Dropout(p=dropout)
         self.linear = nn.Linear(hidden_dim, out_dim)
         self.device = device
@@ -46,8 +46,9 @@ class Model(nn.Module):
         indicators = indicators.view(self.batch_size, 1, -1)
         indicators = indicators.expand(self.batch_size, len(out[0]), self.indicator_dim)
         out = torch.cat((out, indicators), dim=2).to(device=self.device)
-        deep = self.deep(out.view(self.batch_size*len(in_seq[0]), -1)).to(device=self.device)
-        predictions = self.linear(deep.view(len(deep), -1)).to(device=self.device)
+        deep = self.deep(out.view(-1, (self.hidden_dim+self.indicator_dim)*len(in_seq[0]))).to(device=self.device)
+        deep = self.dropout(deep)
+        predictions = self.linear(deep.view(self.batch_size, self.hidden_dim)).to(device=self.device)
         return predictions[-1]
 
 
@@ -61,7 +62,6 @@ def train(model, epochs, training_data, loss_function, optimizer, device, sync =
             batch = batch.to(device=device)
             indicators  = indicators.to(device=device)
             y_pred = model(batch, indicators)
-
             labels = labels.to(device=device)
             single_loss = loss_function(y_pred, labels)
             single_loss.backward()
