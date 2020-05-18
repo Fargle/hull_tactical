@@ -49,7 +49,7 @@ class Model(nn.Module):
         deep = self.deep(out.view(-1, (self.hidden_dim+self.indicator_dim)*len(in_seq[0]))).to(device=self.device)
         deep = self.dropout(deep)
         predictions = self.linear(deep.view(self.batch_size, self.hidden_dim)).to(device=self.device)
-        return predictions[-1]
+        return predictions
 
 
 def train(model, epochs, training_data, loss_function, optimizer, device, sync = False):
