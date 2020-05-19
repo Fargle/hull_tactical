@@ -81,9 +81,10 @@ def validate(model, validation_data, loss_function, device, filename, sync):
         result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE, escapechar='\\')
         result_writer.writerow(["loss", "prediction", "actual"])
 
-        for valid, label in validation_data:
+        for valid, label, indicator in validation_data:
             valid = valid.to(device=device)
-            y_pred = model(valid)
+            indicator = indicator.to(device=device)
+            y_pred = model(valid, indicator)
             label = label.to(device=device)
             single_loss = loss_function(y_pred, label)
             
@@ -244,7 +245,7 @@ if __name__ == '__main__':
      
         adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
         appended_valid = append_indicators(adjusted_valid, time_period=time_period)
-        batched_valid = create_batches(adjusted_valid, batch_size)
+        batched_valid = create_batches(appended_valid, batch_size)
         validate(model, batched_valid, loss_function, device=args.device, filename=outfile, sync=args.sync)
     
     if args.load:
