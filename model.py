@@ -189,7 +189,7 @@ if __name__ == '__main__':
     else:
         args.device = torch.device('cpu')
 
-        
+    print(args.device)    
     try:
         parameters = json.load(open(args.parameters))
     except:
@@ -255,7 +255,8 @@ if __name__ == '__main__':
         data_norm = torch.FloatTensor(data_norm.values).view(-1, 66)
         labels = torch.FloatTensor(labels.values)
         seq_norm = create_sequences(data_norm, labels, sequence_length)
-        batches = create_batches(seq_norm, batch_size)
+        appended = append_indicators(seq_norm, time_period=time_period)
+        batches = create_batches(appended, batch_size)
 
         model.load_state_dict(torch.load(model_name, map_location=args.device))
         model.eval()
