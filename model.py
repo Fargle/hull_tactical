@@ -34,7 +34,7 @@ class Model(nn.Module):
         self.layers = n_layers
         self.batch_size = batch_size
         self.LSTM = nn.LSTM(input_dim, hidden_dim, n_layers, dropout=dropout, batch_first=True)
-        self.deep = nn.Linear(hidden_dim + self.indicator_dim, hidden_dim)
+        self.deep = nn.Linear((hidden_dim + self.indicator_dim)*seq_len, hidden_dim)
         self.dropout = nn.Dropout(p=dropout)
         self.linear = nn.Linear(hidden_dim, out_dim)
         self.device = device
@@ -43,11 +43,13 @@ class Model(nn.Module):
         
     def forward(self, in_seq, indicators):
         out, self.cell_state = self.LSTM(in_seq.view(self.batch_size, len(in_seq[0]), -1), self.cell_state)
+        indicators = indicators.view(self.batch_size, 1, -1)
         indicators = indicators.expand(self.batch_size, len(out[0]), self.indicator_dim)
         out = torch.cat((out, indicators), dim=2).to(device=self.device)
-        deep = self.deep(out.view(self.batch_size*len(in_seq[0]), -1)).to(device=self.device)
-        predictions = self.linear(deep.view(len(deep), -1)).to(device=self.device)
-        return predictions[-1]
+        deep = self.deep(out.view(-1, (self.hidden_dim+self.indicator_dim)*len(in_seq[0]))).to(device=self.device)
+        deep = self.dropout(deep)
+        predictions = self.linear(deep.view(self.batch_size, self.hidden_dim)).to(device=self.device)
+        return predictions
 
 
 def train(model, epochs, training_data, loss_function, optimizer, device, sync = False):
@@ -60,7 +62,6 @@ def train(model, epochs, training_data, loss_function, optimizer, device, sync =
             batch = batch.to(device=device)
             indicators  = indicators.to(device=device)
             y_pred = model(batch, indicators)
-
             labels = labels.to(device=device)
             single_loss = loss_function(y_pred, labels)
             single_loss.backward()
@@ -80,9 +81,10 @@ def validate(model, validation_data, loss_function, device, filename, sync):
         result_writer = csv.writer(results, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE, escapechar='\\')
         result_writer.writerow(["loss", "prediction", "actual"])
 
-        for valid, label in validation_data:
+        for valid, label, indicator in validation_data:
             valid = valid.to(device=device)
-            y_pred = model(valid)
+            indicator = indicator.to(device=device)
+            y_pred = model(valid, indicator)
             label = label.to(device=device)
             single_loss = loss_function(y_pred, label)
             
@@ -187,7 +189,7 @@ if __name__ == '__main__':
     else:
         args.device = torch.device('cpu')
 
-        
+    print(args.device)    
     try:
         parameters = json.load(open(args.parameters))
     except:
@@ -242,7 +244,8 @@ if __name__ == '__main__':
         torch.save(model.state_dict(), model_name)
      
         adjusted_valid = create_sequences(xnorm_valid, validnorm_labels, sequence_length)
-        batched_valid = create_batches(adjusted_valid, batch_size)
+        appended_valid = append_indicators(adjusted_valid, time_period=time_period)
+        batched_valid = create_batches(appended_valid, batch_size)
         validate(model, batched_valid, loss_function, device=args.device, filename=outfile, sync=args.sync)
     
     if args.load:
@@ -252,7 +255,8 @@ if __name__ == '__main__':
         data_norm = torch.FloatTensor(data_norm.values).view(-1, 66)
         labels = torch.FloatTensor(labels.values)
         seq_norm = create_sequences(data_norm, labels, sequence_length)
-        batches = create_batches(seq_norm, batch_size)
+        appended = append_indicators(seq_norm, time_period=time_period)
+        batches = create_batches(appended, batch_size)
 
         model.load_state_dict(torch.load(model_name, map_location=args.device))
         model.eval()
