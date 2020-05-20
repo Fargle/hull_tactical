@@ -4,19 +4,57 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 import pickle
+import numpy as np
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
-buys = {'max': 2500, 'med': 1000, 'min': 500}
 
 def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument("--show", help="show the trading and selling through all data", action="store_true")
-    parser.add_argument("--new", help="make a new account", action="store_true")
-    parser.add_argument("--testing", help ="test bot on results.csv", action="store_true")
+    parser.add_argument("--name", help="Name of model", type=str, default='model')
+    parser.add_argument("--test", help ="test bot on results.csv", action="store_true")
     parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))
     return parser.parse_args()
+
+class Test():
+    def __init__(self, mean, std, cash=10000, market=0):
+        self.cash = cash
+        self.market = market
+        self.mean = mean
+        self.std = std
+
+
+    def get_cash(self):
+        return self.cash
+
+
+    def get_market(self):
+        return self.market
+
+
+    def get_total(self):
+        total = self.cash + self.market
+        return max(0, total)
+
+
+    def buy(self, amount):
+        amount = max(0, amount)
+        self.cash -= amount
+        self.market += amount 
+    
+
+    def sell(self, amount):
+        amount = max(0, amount)
+        self.market -= amount
+        self.cash += amount
+
+
+    def calculate_interest(self, actual):
+        actual = (actual*self.std) + self.mean
+        self.market = max(0, self.market * (1 + (actual*0.1)))
+
 
 def buy_or_sell(prediction, cash, market):
     buy = 0
@@ -26,6 +64,7 @@ def buy_or_sell(prediction, cash, market):
     else:
         sell = market
     return buy, sell
+
 
 def get_available():
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
@@ -66,27 +105,6 @@ def get_available():
         return market, cash
 
 
-def buy_stock(buy, available, invested):
-    assert(buy > 0)
-    assert(available - buy >= 0)
-    available = available - buy
-    invested = invested + buy
-    return available, invested 
-
-
-def sell_stock(sell, available, invested):
-    assert(sell > 0)
-    assert(invested - sell >= 0)
-    available = available + sell
-    invested = invested - sell
-    return available, invested
-
-
-def calculate_earnings(r, invested):
-    invested = invested * (1 + r)
-    return invested
-
-
 def write_out(file, prediction, buy, sell):
     with open(file, mode='w') as output:
         output.write(str(prediction) + "\n")
@@ -111,11 +129,36 @@ def read_csv(file):
 
 if __name__ == '__main__':
     args = setup()
-    results = pd.read_csv("results.csv")
-    prediction = results['prediction'][len(results)-1]
-    cash, market = get_available()
-    buy, sell = buy_or_sell(prediction, cash, market)
-    write_out('output.txt', prediction, buy, sell)
+    filename = args.name + "-results.csv"
 
+    try:
+        results = pd.read_csv(filename)
+        original_data = pd.read_csv(args.data)
+    except: 
+        print("No results file found with name", filename)
+        exit()
+    
+    if args.test:
+        mean = original_data['R'].mean()
+        std = original_data['R'].std()
+        print(results['actual'])
+        results['actual'] = (results['actual']*std) + mean
+        results['prediction'] = (results['prediction']*std) + mean
+        print(results['actual'])
+    
 
-
+        account = Test(mean, std)
+        for i, j in results.iterrows():
+            prediction = j['prediction']
+            actual = j['actual']
+            buy, sell = buy_or_sell(prediction, account.get_cash(), account.get_market())
+            account.buy(amount=buy)
+            account.sell(amount=sell)
+            account.calculate_interest(actual)
+            #print(account.get_total())
+        print('TOTAL:' , account.get_total())
+    else:
+        prediction = results['prediction'][len(results)-1]  
+        cash, market = get_available()    
+        buy, sell = buy_or_sell(prediction, cash, market)   
+        write_out('output.txt', prediction, buy, sell)
