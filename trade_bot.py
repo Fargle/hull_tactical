@@ -3,72 +3,107 @@ import csv
 import matplotlib.pyplot as plt
 import argparse
 import os
+import pickle
+import numpy as np
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
 
-buys = {'max': 100, 'med': 50, 'min': 25}
 
 def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument("--show", help="show the trading and selling through all data", action="store_true")
-    parser.add_argument("--new", help="make a new account", action="store_true")
+    parser.add_argument("--name", help="Name of model", type=str, default='model')
+    parser.add_argument("--test", help ="test bot on results.csv", action="store_true")
     parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))
     return parser.parse_args()
 
-def buy_or_sell(available, invested, prediction, delta):
+class Test():
+    def __init__(self, mean, std, cash=10000, market=0):
+        self.cash = cash
+        self.market = market
+        self.mean = mean
+        self.std = std
+
+
+    def get_cash(self):
+        return self.cash
+
+
+    def get_market(self):
+        return self.market
+
+
+    def get_total(self):
+        total = self.cash + self.market
+        return max(0, total)
+
+
+    def buy(self, amount):
+        amount = max(0, amount)
+        self.cash -= amount
+        self.market += amount 
+    
+
+    def sell(self, amount):
+        amount = max(0, amount)
+        self.market -= amount
+        self.cash += amount
+
+
+    def calculate_interest(self, actual):
+        actual = (actual*self.std) + self.mean
+        self.market = max(0, self.market * (1 + (actual*0.1)))
+
+
+def buy_or_sell(prediction, cash, market):
     buy = 0
-    sell = 0
-    #assert(invested >= 0)
-
-    if prediction > 0 and prediction < delta:
-        if available >= buys.get('med'):
-            buy = buys.get('med')
-        elif available >= buys.get('min'):
-            buy = buys.get('min')
-        else:
-            buy = available
-    
-    elif prediction > 0 and prediction > delta:
-        if available >= buys.get('max'):
-            buy = buys.get('max')
-        elif available >= buys.get('med'):
-            buy = buys.get('med')
-        elif available >= buys.get('min'):
-            buy = buys.get('min')
-
-    elif prediction < 0 and abs(prediction) < delta:
-        if invested >= buys.get('med'):
-            sell = buys.get('med')
-        elif invested >= buys.get('min'):
-            sell = buys.get('min')
-    
-    elif prediction < 0 and abs(prediction) > delta:
-        if invested >= buys.get('max'):
-            sell = buys.get('max')
-        elif invested >= buys.get('med'):
-            sell = buys.get('med')
-        elif invested >= buys.get('min'):
-            sell = buys.get('min')
-
+    sell = 0 
+    if prediction >= 0:
+        buy = cash
+    else:
+        sell = market
     return buy, sell
 
-def buy_stock(buy, available, invested):
-    assert(buy > 0)
-    assert(available - buy >= 0)
-    available = available - buy
-    invested = invested + buy
-    return available, invested 
 
+def get_available():
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+    SAMPLE_SPREADSHEET_ID = '1x1-5f4ERy87WWWdaA3b4D8F7EqLlEpJuluJ9yOHqMS0'
+    SAMPLE_RANGE_NAME = 'A2:L'
 
-def sell_stock(sell, available, invested):
-    assert(sell > 0)
-    assert(invested - sell >= 0)
-    available = available + sell
-    invested = invested - sell
-    return available, invested
+    if os.path.exists('token.pickle'):
+        with open('token.pickle', 'rb') as token:
+            creds = pickle.load(token)
+    
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('token.pickle', 'wb') as token:
+            pickle.dump(creds, token)
 
+    service = build('sheets', 'v4', credentials=creds)
+    sheet = service.spreadsheets()
+    result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
+                                range=SAMPLE_RANGE_NAME).execute()
+    values = result.get('values', [])
 
-def calculate_earnings(r, invested):
-    invested = invested * (1 + r)
-    return invested
+    if not values:
+        print('No data found.')
+    else:
+        print('')
+        df = pd.DataFrame(values)
+        df.columns = ['no', 'Team Name', 'Cash', 'Market', 'Total', 'Prediction', 'Buy', 'Sell', 'Cash2', 'Market2', 'Total2', 'R']
+        df = df.drop([0, 1])
+        market_indx = df['Market2'].where(df['Team Name'] == 'bells in forts').last_valid_index()
+        cash_indx = df['Cash2'].where(df['Team Name'] == 'bells in forts').last_valid_index()
+        market = df['Market2'][market_indx]
+        cash = df['Cash2'][cash_indx] 
+
+        return market, cash
+
 
 def write_out(file, prediction, buy, sell):
     with open(file, mode='w') as output:
@@ -76,11 +111,13 @@ def write_out(file, prediction, buy, sell):
         output.write(str(buy) + "\n")
         output.write(str(sell) + "\n")
 
+
 def write_csv(file, available, invested, total):
     with open(file, mode="w", newline='', encoding='utf-8') as account:
         account_writer = csv.writer(account, delimiter = ",", quotechar='"', quoting=csv.QUOTE_NONE)
         account_writer.writerow(['available', 'invested', 'total'])
         account_writer.writerow([available, invested, total])
+
 
 def read_csv(file):
     with open(file, 'r', encoding='utf-8') as f:
@@ -89,51 +126,39 @@ def read_csv(file):
             pass
     return row
 
+
 if __name__ == '__main__':
     args = setup()
-    results = pd.read_csv("results.csv")
-    if args.new:
-        write_csv(file='account.csv', available=10000, invested=0, total=10000)
-    account = read_csv("account.csv")
+    filename = args.name + "-results.csv"
 
-    delta = results["prediction"].std()
-    available = float(account['available'])
-    invested = float(account['invested'])
-    total = float(account['total'])
+    try:
+        results = pd.read_csv(filename)
+        original_data = pd.read_csv(args.data)
+    except: 
+        print("No results file found with name", filename)
+        exit()
+    
+    if args.test:
+        mean = original_data['R'].mean()
+        std = original_data['R'].std()
+        print(results['actual'])
+        results['actual'] = (results['actual']*std) + mean
+        results['prediction'] = (results['prediction']*std) + mean
+        print(results['actual'])
+    
 
-    prediction = results.iloc[len(results)-1]["prediction"].astype(float)
-    r = results.iloc[len(results)-1]["actual"]
-    invested = calculate_earnings(r, invested)
-    buy, sell = buy_or_sell(available, invested, prediction, delta)
-    write_out("output.txt", prediction, buy, sell)
-
-    if args.show:
-        try:
-            df = pd.read_csv("ucsbdata.csv")   
-            df.dropna()
-            del df['Index']
-            df = df.astype(float)
-        except:
-            print("ucsbdata not found")
-        try:
-            plt.figure()
-            plt.plot(df["OPEN"])
-        except:
-            print('you got some problems with matplot')
-
-        buy = 0
-        sell = 0
-        for index, row in results.iterrows():
-            prediction = row["prediction"]
-            r = row['actual']
-            invested = calculate_earnings(r, invested)
-            print('prediction:', str(round(prediction, 2)), 'r:', str(round(r, 2)), 'buy:', buy, 'sell:', sell, 'invested', invested)
-            buy, sell = buy_or_sell(available, invested, prediction, delta)
-            if buy != 0:
-                available, invested = buy_stock(buy, available, invested)
-            elif sell != 0: 
-                available, invested = sell_stock(sell, available, invested)
-
-        total = invested + available
-        print('total', total)
-
+        account = Test(mean, std)
+        for i, j in results.iterrows():
+            prediction = j['prediction']
+            actual = j['actual']
+            buy, sell = buy_or_sell(prediction, account.get_cash(), account.get_market())
+            account.buy(amount=buy)
+            account.sell(amount=sell)
+            account.calculate_interest(actual)
+            #print(account.get_total())
+        print('TOTAL:' , account.get_total())
+    else:
+        prediction = results['prediction'][len(results)-1]  
+        cash, market = get_available()    
+        buy, sell = buy_or_sell(prediction, cash, market)   
+        write_out('output.txt', prediction, buy, sell)
