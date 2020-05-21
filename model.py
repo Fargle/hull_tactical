@@ -188,8 +188,6 @@ if __name__ == '__main__':
         args.device = torch.device("cuda")
     else:
         args.device = torch.device('cpu')
-
-    print(args.device)    
     try:
         parameters = json.load(open(args.parameters))
     except:
