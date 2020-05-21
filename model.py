@@ -15,13 +15,13 @@ import wandb
 
 def setup():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sync", help="syncs data with weights and biases remote", action="store_true")
-    parser.add_argument("--load", help="load trained model", action="store_true")
-    parser.add_argument("--train", help="train lstm model", action="store_true")
-    parser.add_argument("--parameters", help="A json file containing a list of parameters to be used in the network", default={})
-    parser.add_argument("--data", type=str, help="Path to data", default=os.path.abspath("ucsbdata.csv"))
-    parser.add_argument("--disable-cuda", action="store_true", help="disables CUDA")
-    parser.add_argument("--name", help="name the model.pth file", default='model')
+    parser.add_argument("-s", "--sync", help="syncs data with weights and biases remote", action="store_true")
+    parser.add_argument("-l", "--load", help="load trained model", action="store_true")
+    parser.add_argument('-t', "--train", help="train lstm model", action="store_true")
+    parser.add_argument('-p', "--parameters", help="A json file containing a list of parameters to be used in the network", default={})
+    parser.add_argument('-d',"--data", type=str, help="Path to data", default="./ucsbdata.csv")
+    parser.add_argument('-dc', "--disable-cuda", action="store_true", help="disables CUDA")
+    parser.add_argument('-n', "--name", help="name the model.pth file", default='model')
     return parser.parse_args()
 
 
@@ -131,7 +131,7 @@ def create_sequences(data, labels, sequence):
 #Calculates the simple moving average given a time period and list of sequences.
 def moving_ave(sequence, time_period):
     #sequences in a list of tuples containing the time window and the corresponding label.
-    moving_ave = torch.sum(sequence, axis=0)/time_period
+    moving_ave = torch.sum(sequence, dim=0)/time_period
     return moving_ave
     
     
@@ -176,7 +176,11 @@ def create_batches(sequences, batch_size):
 
 if __name__ == '__main__':
     args = setup()
-    df = pd.read_csv(args.data) #save data into pandas data frame
+    try:
+        df = pd.read_csv(args.data) #save data into pandas data frame
+    except FileNotFoundError:
+        print(args.data, 'was not found')
+
     df = df[df["R"].notna()] #remove any rows where R does not have a value
     del df["Index"] #delete dates from our data 
     df = df.dropna() #need a different way to deal with nan  
