@@ -1,10 +1,11 @@
 {
-    "sequence length": 60,
-    "batch size": 500,
+    "sequence length": 80, 
+    "batch size": 10,
     "input dimension": 66,
     "output dimesntion": 1,
     "hidden dimension": 64,
     "layers": 2,
-    "learning rate": 0.000001,
-    "epochs": 300
+    "learning rate": 0.00001,
+    "epochs": 1500,
+    "dropout": 0.5
 }
