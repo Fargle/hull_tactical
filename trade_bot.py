@@ -57,8 +57,8 @@ class Test():
 
 
 def buy_or_sell(prediction, cash, market):
-    buy = 0
-    sell = 0 
+    buy = 0.0
+    sell = 0.0
     if prediction >= 0:
         buy = cash
     else:
@@ -100,9 +100,12 @@ def get_available():
         market_indx = df['Market2'].where(df['Team Name'] == 'bells in forts').last_valid_index()
         cash_indx = df['Cash2'].where(df['Team Name'] == 'bells in forts').last_valid_index()
         market = df['Market2'][market_indx]
-        cash = df['Cash2'][cash_indx] 
-
-        return market, cash
+        cash = df['Cash2'][cash_indx]
+        if cash == '-':
+            cash = '0'
+        if market == '-':
+            market = '0'
+        return float(market.replace(',', '')), float(cash.replace(',', '').replace(' ', ''))
 
 
 def write_out(file, prediction, buy, sell):
@@ -159,6 +162,8 @@ if __name__ == '__main__':
         print('TOTAL:' , account.get_total())
     else:
         prediction = results['prediction'][len(results)-1]  
-        cash, market = get_available()    
-        buy, sell = buy_or_sell(prediction, cash, market)   
+        market, cash = get_available()    
+        print(cash, market)
+        buy, sell = buy_or_sell(prediction, cash, market)
+        print(buy, sell)
         write_out('output.txt', prediction, buy, sell)
