@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 import pickle
-import numpy as np
+import numpy as np  
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -71,6 +71,8 @@ def get_available():
     SAMPLE_SPREADSHEET_ID = '1x1-5f4ERy87WWWdaA3b4D8F7EqLlEpJuluJ9yOHqMS0'
     SAMPLE_RANGE_NAME = 'A2:L'
 
+    creds = None
+
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
             creds = pickle.load(token)
@@ -93,7 +95,6 @@ def get_available():
     if not values:
         print('No data found.')
     else:
-        print('')
         df = pd.DataFrame(values)
         df.columns = ['no', 'Team Name', 'Cash', 'Market', 'Total', 'Prediction', 'Buy', 'Sell', 'Cash2', 'Market2', 'Total2', 'R']
         df = df.drop([0, 1])
@@ -140,16 +141,12 @@ if __name__ == '__main__':
     except: 
         print("No results file found with name", filename)
         exit()
-    
-    if args.test:
-        mean = original_data['R'].mean()
-        std = original_data['R'].std()
-        print(results['actual'])
-        results['actual'] = (results['actual']*std) + mean
-        results['prediction'] = (results['prediction']*std) + mean
-        print(results['actual'])
-    
 
+    mean = original_data['R'].mean()
+    std = original_data['R'].std()
+    results['prediction'] = (results['prediction']*std) + mean
+    if args.test:
+        results['actual'] = (results['actual']*std) + mean
         account = Test(mean, std)
         for i, j in results.iterrows():
             prediction = j['prediction']
@@ -161,9 +158,7 @@ if __name__ == '__main__':
             #print(account.get_total())
         print('TOTAL:' , account.get_total())
     else:
-        prediction = results['prediction'][len(results)-1]  
+        prediction = float(results['prediction'][len(results)-1])
         market, cash = get_available()    
-        print(cash, market)
         buy, sell = buy_or_sell(prediction, cash, market)
-        print(buy, sell)
-        write_out('output.txt', prediction, buy, sell)
+        write_out('output.txt', prediction, int(buy), int(sell))
